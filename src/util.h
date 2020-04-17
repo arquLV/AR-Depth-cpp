@@ -6,8 +6,8 @@
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 
-const int width_resize = 270;
-const int height_resize = 480;
+const int width_resize = 540;
+const int height_resize = 960;
 
 class Point {
 public:
@@ -70,5 +70,8 @@ public:
     Eigen::Matrix3d GetQuat(int view_id);
 
     cv::Mat GetSparseDepthMap(int frame_id, bool resize);
-	std::pair<cv::Mat, cv::Mat> GetSparseDepthWithSize(int frame_id, int width, int height);
+
+	using SparseMap = std::pair<cv::Mat, cv::Mat>;
+	SparseMap GetSparseDepthWithSize(int frame_id, int width, int height);
+	std::vector<SparseMap> GetSparseDepthPyramid(int frame_id, int baseWidth, int baseHeight, int layers);
 };

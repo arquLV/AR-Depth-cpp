@@ -143,3 +143,19 @@ std::pair<cv::Mat, cv::Mat> Reconstruction::GetSparseDepthWithSize(int frame_id,
 	return std::make_pair(depth_map, confidence_map);
 }
 
+std::vector<Reconstruction::SparseMap> Reconstruction::GetSparseDepthPyramid(int frame_id, int baseWidth, int baseHeight, int layers) {
+	std::vector<Reconstruction::SparseMap> pyramid;
+	pyramid.reserve(layers);
+
+	int width = baseWidth;
+	int height = baseHeight;
+	for (int layer = 0; layer < layers; layer++) {
+		pyramid.emplace_back(GetSparseDepthWithSize(frame_id, width, height));
+
+		width /= 2;
+		height /= 2;
+	}
+
+	return pyramid;
+}
+

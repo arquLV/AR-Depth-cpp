@@ -367,13 +367,108 @@ cv::Mat ARDepth::GetInitialization(const cv::Mat& sparse_points, const cv::Mat& 
     return initialization;
 }
 
-cv::Mat ARDepth::DensifyFrame(const cv::Mat& sparse_points, const cv::Mat& confidence_map, const cv::Mat& hard_edges, const cv::Mat& soft_edges, const cv::Mat& last_depth_map){
+cv::Mat ARDepth::DensifyFrame(const std::vector<Reconstruction::SparseMap>& sparsePyramid, const cv::Mat& hard_edges, const cv::Mat& soft_edges, const cv::Mat& last_depth_map){
+	
+	std::vector<cv::Mat> hard_edges_pyramid;
+	hard_edges_pyramid.emplace_back(hard_edges);
+
+	std::vector<cv::Mat> soft_edges_pyramid;
+	soft_edges_pyramid.emplace_back(soft_edges);
+
+	for (int l = 1; l < 4; l++) {
+		int w = sparsePyramid.at(l).first.cols;
+		int h = sparsePyramid.at(l).first.rows;
+
+		cv::Mat hard_edges_resized;
+		cv::Mat soft_edges_resized;
+		cv::resize(hard_edges, hard_edges_resized, cv::Size(w, h));
+		cv::resize(soft_edges, soft_edges_resized, cv::Size(w, h));
+
+		hard_edges_pyramid.emplace_back(hard_edges_resized);
+		soft_edges_pyramid.emplace_back(soft_edges_resized);
+	}
+
+	cv::Mat last_depth_small;
+	if (!last_depth_map.empty()) {
+		cv::resize(last_depth_map, last_depth_small, cv::Size(sparsePyramid.at(3).first.cols, sparsePyramid.at(3).first.rows));
+	}
+	cv::Mat topInitialization = GetInitialization(sparsePyramid.at(3).first, last_depth_small);
+
+	for (int iter = 0; iter < 5; iter++) {
+		for (int layer = 3; layer >= 0; layer--) {
+			int w = sparsePyramid.at(layer).first.cols;
+			int h = sparsePyramid.at(layer).first.rows;
+			int num_pixels = w * h;
+
+
+			Eigen::SparseMatrix<double> A(num_pixels * 3, num_pixels);
+			Eigen::VectorXd b = Eigen::VectorXd::Zero(num_pixels * 3);
+			Eigen::VectorXd x0 = Eigen::VectorXd::Zero(num_pixels);
+			int num_entries = 0;
+
+			cv::Mat smoothness = cv::max(1 - soft_edges_pyramid.at(layer), 0);
+			cv::Mat smoothness_x = cv::Mat::zeros(cv::Size(w, h), CV_64FC1);
+			cv::Mat smoothness_y = cv::Mat::zeros(cv::Size(w, h), CV_64FC1);
+
+			
+
+			std::vector<Eigen::Triplet<double>> tripletList;
+
+			for (int y = 1; y < h - 1; y++) {
+				for (int x = 1; x < w - 1; x++) {
+					int idx = x + y * w;
+					x0(idx) = initialization.at<double>(y, x);
+					if (sparsePyramid.at(layer).first.at<double>(y, x) > 0.00) {
+						double confidence = sparsePyramid.at(layer).second.at<double>(y, x);
+						tripletList.emplace_back(Eigen::Triplet<double>(num_entries, idx, lambda_d * confidence));
+						b(num_entries) = (1.0 / sparsePyramid.at(layer).first.at<double>(y, x)) * (lambda_d * confidence);
+						num_entries++;
+					}
+					else if (!last_depth_map.empty() && last_depth_map.at<double>(y, x) > 0) {
+						tripletList.emplace_back(Eigen::Triplet<double>(num_entries, idx, lambda_t));
+						b(num_entries) = (1.0 / last_depth_map.at<double>(y, x)) * lambda_t;
+						num_entries++;
+					}
+
+					double smoothnes_weight = lambda_s * std::min(smoothness.at<double>(y, x), smoothness.at<double>(y - 1, x));
+
+					if (hard_edges.at<double>(y, x) == hard_edges.at<double>(y - 1, x)) {
+						smoothness_x.at<double>(y, x) = smoothnes_weight;
+						tripletList.emplace_back(Eigen::Triplet<double>(num_entries, idx - w, smoothnes_weight));
+						tripletList.emplace_back(Eigen::Triplet<double>(num_entries, idx, -smoothnes_weight));
+						b(num_entries) = 0;
+						num_entries++;
+					}
+
+					smoothnes_weight = lambda_s * std::min(smoothness.at<double>(y, x), smoothness.at<double>(y, x - 1));
+
+					if (hard_edges.at<double>(y, x) == hard_edges.at<double>(y, x - 1)) {
+						smoothness_y.at<double>(y, x) = smoothnes_weight;
+						tripletList.emplace_back(Eigen::Triplet<double>(num_entries, idx - 1, smoothnes_weight));
+						tripletList.emplace_back(Eigen::Triplet<double>(num_entries, idx, -smoothnes_weight));
+						b(num_entries) = 0;
+						num_entries++;
+					}
+				}
+			}
+
+
+			A.setFromTriplets(tripletList.begin(), tripletList.end());
+
+			Eigen::ConjugateGradient<Eigen::SparseMatrix<double>, Eigen::Lower | Eigen::Upper> cg;
+
+			cg.compute(A.transpose() * A);
+			cg.setMaxIterations(num_solver_iterations);
+			cg.setTolerance(1e-05);
+			Eigen::VectorXd x_vec = cg.solveWithGuess(A.transpose() * b, x0);
+		}
+	}
 
     int w = sparse_points.cols;
     int h = sparse_points.rows;
     int num_pixels = w * h;
 
-    Eigen::SparseMatrix<double> A(num_pixels * 3, num_pixels);
+   /* Eigen::SparseMatrix<double> A(num_pixels * 3, num_pixels);
     Eigen::VectorXd b = Eigen::VectorXd::Zero(num_pixels * 3);
     Eigen::VectorXd x0 = Eigen::VectorXd::Zero(num_pixels);
     int num_entries = 0;
@@ -432,7 +527,7 @@ cv::Mat ARDepth::DensifyFrame(const cv::Mat& sparse_points, const cv::Mat& confi
     cg.compute(A.transpose()*A);
     cg.setMaxIterations(num_solver_iterations);
     cg.setTolerance(1e-05);
-    Eigen::VectorXd x_vec = cg.solveWithGuess(A.transpose()*b, x0);
+    Eigen::VectorXd x_vec = cg.solveWithGuess(A.transpose()*b, x0);*/
 
     cv::Mat depth = cv::Mat::zeros(h,w,CV_64FC1);
     for(int y=0; y<h; y++)
@@ -540,20 +635,20 @@ void ARDepth::run() {
             continue;
 
         std::cout<<"==> Processing frame "<<recon.views[frame].name<<std::endl;
-        cv::Mat base_img = recon.GetImage(frame, resize);
-		cv::Mat base_img_full = recon.GetImage(frame, false);
+        cv::Mat base_img_small = recon.GetImage(frame, true);
+		cv::Mat base_img = recon.GetImage(frame, false);
 
         std::vector<cv::Mat> flows;
         for(const auto& ref : reference_frames){
             //cv::Mat ref_img = recon.GetImage(ref, resize);
-			cv::Mat ref_img = recon.GetImage(ref, false);
-            flows.emplace_back(GetFlow(base_img_full, ref_img));
+			cv::Mat ref_img = recon.GetImage(ref, true);
+            flows.emplace_back(GetFlow(base_img_small, ref_img));
         }
 		std::cout << "Getting soft edges" << std::endl;
-        cv::Mat soft_edges = GetSoftEdges(base_img_full, flows);
+        cv::Mat soft_edges = GetSoftEdges(base_img_small, flows);
 
 		cv::Mat soft_edges_resized;
-		cv::resize(soft_edges, soft_edges_resized, cv::Size(width_resize, height_resize));
+		cv::resize(soft_edges, soft_edges_resized, cv::Size(base_img.cols, base_img.rows));
 
 		cv::Mat soft_edges_thresholded;
 		cv::threshold(soft_edges_resized, soft_edges_thresholded, tau_flow, 1, CV_THRESH_BINARY);
@@ -580,9 +675,11 @@ void ARDepth::run() {
 			//cv::resize(edges, edges_resized, cv::Size(width_resize, height_resize));
 
 			std::cout << "Densifying..." << std::endl;
-			std::pair<cv::Mat, cv::Mat> sparseDepth = recon.GetSparseDepthWithSize(last_keyframe, width_resize, height_resize);
+			//std::pair<cv::Mat, cv::Mat> sparseDepth = recon.GetSparseDepthWithSize(last_keyframe, width_resize, height_resize);
 			//cv::Mat depth = DensifyFrame(recon.GetSparseDepthMap(last_keyframe, resize), edges, soft_edges_resized, last_depth);
-			cv::Mat depth = DensifyFrame(sparseDepth.first, sparseDepth.second, edges, soft_edges_resized, last_depth);
+			auto sparsePyramid = recon.GetSparseDepthPyramid(last_keyframe, base_img.cols, base_img.rows, 4);
+
+			cv::Mat depth = DensifyFrame(sparsePyramid, edges, soft_edges_resized, last_depth);
 
 			last_depths.push_back(depth);
 			if (last_depths.size() > k_T)

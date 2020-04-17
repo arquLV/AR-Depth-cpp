@@ -66,7 +66,7 @@ public:
 
     cv::Mat GetInitialization(const cv::Mat& sparse_points, const cv::Mat& last_depth_map);
 
-    cv::Mat DensifyFrame(const cv::Mat& sparse_points, const cv::Mat& confidence_map, const cv::Mat& hard_edges, const cv::Mat& soft_edges, const cv::Mat& last_depth_map);
+    cv::Mat DensifyFrame(const std::vector<Reconstruction::SparseMap>& sparsePyramid, const cv::Mat& hard_edges, const cv::Mat& soft_edges, const cv::Mat& last_depth_map);
 
     template <typename T>
     T median(std::vector<T>& c);
