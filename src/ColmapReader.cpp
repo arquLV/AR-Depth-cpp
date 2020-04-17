@@ -97,6 +97,7 @@ std::map<int, Point> ColmapReader::ReadColmapPoints(std::string filename) {
         points[id_value].id = id_value;
         points[id_value].position3d = Eigen::Vector3d(std::stod(tokens[1]), std::stod(tokens[2]),
                                                       std::stod(tokens[3]));
+		points[id_value].error = std::stod(tokens[7]);
     }
 
     return points;

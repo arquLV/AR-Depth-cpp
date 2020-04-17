@@ -6,14 +6,15 @@
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 
-const int width_resize = 180;
-const int height_resize = 320;
+const int width_resize = 270;
+const int height_resize = 480;
 
 class Point {
 public:
     Point() = default;
     int id = -1;
     Eigen::Vector3d position3d = Eigen::Vector3d::Zero();
+	double error = 1;
 };
 
 class Camera {
@@ -69,5 +70,5 @@ public:
     Eigen::Matrix3d GetQuat(int view_id);
 
     cv::Mat GetSparseDepthMap(int frame_id, bool resize);
-
+	std::pair<cv::Mat, cv::Mat> GetSparseDepthWithSize(int frame_id, int width, int height);
 };

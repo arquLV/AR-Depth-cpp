@@ -53,7 +53,7 @@ std::pair<int, int> Reconstruction::GetNeighboringKeyframes(int view_id){
         }
     }
 
-    if(previous_keyframe<0 or next_keyframe<0){
+    if(previous_keyframe<0 || next_keyframe<0){
         return std::make_pair(-1, -1);
     }
     return std::make_pair(previous_keyframe, next_keyframe);
@@ -62,7 +62,7 @@ std::pair<int, int> Reconstruction::GetNeighboringKeyframes(int view_id){
 std::vector<int> Reconstruction::GetReferenceFrames(int view_id){
     std::pair<int, int> kf = GetNeighboringKeyframes(view_id);
     std::vector<int> ref;
-    if(kf.first==-1 and kf.second==-1)
+    if(kf.first==-1 && kf.second==-1)
         return ref;
     double dist = (views[kf.second].Position()- views[kf.first].Position()).norm()/2;
     Eigen::Vector3d pos = views[view_id].Position();
@@ -115,5 +115,31 @@ cv::Mat Reconstruction::GetSparseDepthMap(int frame_id, bool resize){
         cv::resize(depth_map, depth_map, cv::Size(width_resize, height_resize));
 
     return depth_map;
+}
+
+std::pair<cv::Mat, cv::Mat> Reconstruction::GetSparseDepthWithSize(int frame_id, int width, int height) {
+	Camera camera = cameras[views[frame_id].camera_id];
+	View view = views[frame_id];
+	Eigen::Vector3d view_pos = view.Position();
+	
+	cv::Mat confidence_map = cv::Mat::zeros(cv::Size(width, height), CV_64FC1);
+	cv::Mat depth_map = cv::Mat::zeros(cv::Size(width, height), CV_64FC1);
+
+	for (const auto& item : view.points2d) {
+		int point_id = item.first;
+		std::pair<double, double> coord = item.second;
+		Eigen::Vector3d pos3d = points3d[point_id].position3d;
+		double depth = (pos3d - view_pos).norm();
+
+		int y = (coord.second / camera.height) * height;
+		int x = (coord.first / camera.width) * width;
+		double confidence = 1 - points3d[point_id].error;
+		if (confidence > confidence_map.at<double>(y, x)) {
+			confidence_map.at<double>(y, x) = confidence;
+			depth_map.at<double>(y,x) = depth;
+		}
+	}
+
+	return std::make_pair(depth_map, confidence_map);
 }
 

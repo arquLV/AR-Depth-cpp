@@ -1,5 +1,23 @@
 #include "ARDepth.h"
 
+cv::Mat ARDepth::AbsoluteMaximum(const std::vector<cv::Mat>& mats) {
+	cv::Mat output = cv::Mat::zeros(mats.at(0).size(), mats.at(0).depth());
+	int height = output.rows;
+	int width = output.cols;
+
+	for (const auto& mat : mats) {
+		for (int y = 0; y < height; y++) {
+			for (int x = 0; x < width; x++) {
+				if (abs(mat.at<double>(y, x)) > abs(output.at<double>(y, x))) {
+					output.at<double>(y, x) = mat.at<double>(y, x);
+				}
+			}
+		}
+	}
+
+	return output;
+}
+
 cv::Mat ARDepth::GetFlow(const cv::Mat& image1, const cv::Mat& image2){
     cv::Mat flow, image1_, image2_;
     cv::cvtColor(image1, image1_, cv::COLOR_BGR2GRAY);
@@ -19,8 +37,10 @@ std::pair<cv::Mat, cv::Mat> ARDepth::GetImageGradient(const cv::Mat& image){
     cv::split(grad_x, rgb_x);
     cv::split(grad_y, rgb_y);
 
-    cv::Mat img_grad_x = cv::max(cv::max(rgb_x[0], rgb_x[1]), rgb_x[2]);
-    cv::Mat img_grad_y = cv::max(cv::max(rgb_y[0], rgb_y[1]), rgb_y[2]);
+    /*cv::Mat img_grad_x = cv::max(cv::max(rgb_x[0], rgb_x[1]), rgb_x[2]);
+    cv::Mat img_grad_y = cv::max(cv::max(rgb_y[0], rgb_y[1]), rgb_y[2]);*/
+	cv::Mat img_grad_x = AbsoluteMaximum(rgb_x);
+	cv::Mat img_grad_y = AbsoluteMaximum(rgb_y);
 
     return std::make_pair(img_grad_x, img_grad_y);
 }
@@ -40,8 +60,10 @@ std::pair<cv::Mat, cv::Mat> ARDepth::GetFlowGradientMagnitude(const cv::Mat& flo
     cv::split(tmp_x, grad_x);
     cv::split(tmp_y, grad_y);
 
-    cv::Mat flow_grad_x = cv::max(grad_x[0], grad_x[1]);
-    cv::Mat flow_grad_y = cv::max(grad_y[0], grad_y[1]);
+    /*cv::Mat flow_grad_x = cv::max(grad_x[0], grad_x[1]);
+    cv::Mat flow_grad_y = cv::max(grad_y[0], grad_y[1]);*/
+	cv::Mat flow_grad_x = AbsoluteMaximum(grad_x);
+	cv::Mat flow_grad_y = AbsoluteMaximum(grad_y);
 
     cv::Mat flow_grad_magnitude;
     cv::sqrt(flow_grad_x.mul(flow_grad_x) + flow_grad_y.mul(flow_grad_y), flow_grad_magnitude);
@@ -63,9 +85,9 @@ std::pair<cv::Mat, cv::Mat> ARDepth::GetFlowGradientMagnitude(const cv::Mat& flo
             Eigen::Vector2d p0 = center_pixel + gradient_dir;
             Eigen::Vector2d p1 = center_pixel - gradient_dir;
 
-            if(p0[0]<0 or p1[0]<0 or p0[1]<0 or p1[1]<0
-               or p0[0]>=height or p0[1]>=width or p1[0]>=height or p1[1]>=height){
-                reliability.at<float>(y,x) = -100;
+            if(p0[0]<0 || p1[0]<0 || p0[1]<0 || p1[1]<0
+               || p0[0]>=height || p0[1]>=width || p1[0]>=height || p1[1]>=width){
+                reliability.at<float>(y,x) = -1000;
                 continue;
             }
 
@@ -92,25 +114,33 @@ cv::Mat ARDepth::GetSoftEdges(const cv::Mat& image, const std::vector<cv::Mat>& 
     int height = flows[0].rows;
     int width = flows[0].cols;
 
+	std::cout << "Iterating flows" << std::endl;
     for(const auto& flow : flows){
         std::pair<cv::Mat, cv::Mat> FlowGradMag = GetFlowGradientMagnitude(flow, img_grad.first, img_grad.second);
         cv::Mat magnitude = FlowGradMag.first;
         cv::Mat reliability = FlowGradMag.second;
+
+		//std::cout << flow_gradient_magnitude.elemSize1() << std::endl;
         for(int y=0; y<height; y++) {
             for (int x = 0; x<width; x++) {
-                if(reliability.at<float>(y,x)>max_reliability.at<float>(y,x)){
+                if(reliability.at<float>(y,x)>max_reliability.at<double>(y,x)){
                     flow_gradient_magnitude.at<double>(y,x) = magnitude.at<double>(y,x);
+
+					max_reliability.at<double>(y, x) = reliability.at<float>(y, x); // ?
                 }
             }
         }
     }
+	std::cout << "Done iterating flows" << std::endl;
 
     cv::GaussianBlur(flow_gradient_magnitude, flow_gradient_magnitude, cv::Size(k_F, k_F), 0);
     flow_gradient_magnitude = flow_gradient_magnitude.mul(img_grad_magnitude);
+	//cv:add(flow_gradient_magnitude, flow_gradient_magnitude.mul(img_grad_magnitude), flow_gradient_magnitude);
     double minVal, maxVal;
     cv::Point minLoc, maxLoc;
     cv::minMaxLoc(flow_gradient_magnitude, &minVal, &maxVal, &minLoc, &maxLoc);
-    flow_gradient_magnitude /= maxVal;
+    flow_gradient_magnitude /= (maxVal * 0.7);
+	flow_gradient_magnitude = cv::min(flow_gradient_magnitude, 1.0);
 
     return flow_gradient_magnitude;
 }
@@ -125,8 +155,10 @@ cv::Mat ARDepth::Canny(const cv::Mat& soft_edges, const cv::Mat& image){
     cv::split(grad_y, rgb_y);
 
     std::vector<cv::Mat> merge;
-    cv::Mat gx = cv::max(cv::max(rgb_x[0], rgb_x[1]), rgb_x[2]);
-    cv::Mat gy = cv::max(cv::max(rgb_y[0], rgb_y[1]), rgb_y[2]);
+    /*cv::Mat gx = cv::max(cv::max(rgb_x[0], rgb_x[1]), rgb_x[2]);
+    cv::Mat gy = cv::max(cv::max(rgb_y[0], rgb_y[1]), rgb_y[2]);*/
+	cv::Mat gx = AbsoluteMaximum(rgb_x);
+	cv::Mat gy = AbsoluteMaximum(rgb_y);
 
     merge.push_back(gx);
     merge.push_back(gy);
@@ -153,43 +185,91 @@ cv::Mat ARDepth::Canny(const cv::Mat& soft_edges, const cv::Mat& image){
             long int tg22x = ax * TG22;
             long int tg67x = tg22x + (ax<<16);
             double m = mag.at<double>(y,x);
-            if(ay < tg22x){
-                if( m > mag.at<double>(y,x-1) and m >= mag.at<double>(y,x+1)) {
-                    if (m > tau_high and soft_edges.at<double>(y,x) > tau_flow){
-                        seeds.push(std::make_pair(x,y));
+
+			if (ay < tg22x) {
+				if (m > mag.at<double>(y-1, x) && m >= mag.at<double>(y+1, x)) {
+					if (m > tau_high && soft_edges.at<double>(y, x) > tau_flow) {
+						seeds.push(std::make_pair(y, x));
+						edges.at<double>(y, x) = 255;
+					}
+					else if (m > tau_low) {
+						edges.at<double>(y, x) = 1;
+					}
+				}
+			}
+			else if (ay > tg67x) {
+				if (m > mag.at<double>(y, x+1) && m >= mag.at<double>(y, x-1)) {
+					if (m > tau_high && soft_edges.at<double>(y, x) > tau_flow) {
+						seeds.push(std::make_pair(y, x));
+						edges.at<double>(y, x) = 255;
+					}
+					else if (m > tau_low) {
+						edges.at<double>(y, x) = 1;
+					}
+				}
+			}
+			else if ((int(gx.at<double>(y, x)) ^ int(gy.at<double>(y, x))) < 0) {
+				if (m > mag.at<double>(y + 1, x - 1) && m >= mag.at<double>(y - 1, x + 1)) {
+					if (m > tau_high && soft_edges.at<double>(y, x) > tau_flow) {
+						seeds.push(std::make_pair(y, x));
+						edges.at<double>(y, x) = 255;
+					}
+					else if (m > tau_low) {
+						edges.at<double>(y, x) = 1;
+					}
+				}
+			}
+			else {
+				if (m > mag.at<double>(y - 1, x - 1) && m >= mag.at<double>(y + 1, x + 1)) {
+					if (m > tau_high && soft_edges.at<double>(y, x) > tau_flow) {
+						seeds.push(std::make_pair(y, x));
+						edges.at<double>(y, x) = 255;
+					}
+					else if (m > tau_low) {
+						edges.at<double>(y, x) = 1;
+					}
+				}
+			}
+
+
+
+            /*if(ay < tg22x){
+                if( m > mag.at<double>(y,x-1) && m >= mag.at<double>(y,x+1)) {
+                    if (m > tau_high && soft_edges.at<double>(y,x) > tau_flow){
+                        seeds.push(std::make_pair(y,x));
                         edges.at<double>(y,x) =255;
                     }else if (m > tau_low){
                         edges.at<double>(y,x) = 1;
                     }
                 }
             } else if (ay > tg67x){
-                if(m > mag.at<double>(y+1,x) and m >= mag.at<double>(y-1,x)){
-                    if (m > tau_high and soft_edges.at<double>(y,x) > tau_flow){
-                        seeds.push(std::make_pair(x,y));
+                if(m > mag.at<double>(y+1,x) && m >= mag.at<double>(y-1,x)){
+                    if (m > tau_high && soft_edges.at<double>(y,x) > tau_flow){
+                        seeds.push(std::make_pair(y,x));
                         edges.at<double>(y,x) =255;
                     }else if (m > tau_low){
                         edges.at<double>(y,x) = 1;
                     }
                 }
             } else if ( (int(gx.at<double>(y,x)) ^ int(gy.at<double>(y,x))) < 0){
-                if(m > mag.at<double>(y-1,x+1) and m >= mag.at<double>(y+1,x-1)) {
-                    if (m > tau_high and soft_edges.at<double>(y,x) > tau_flow){
-                        seeds.push(std::make_pair(x,y));
+                if(m > mag.at<double>(y-1,x+1) && m >= mag.at<double>(y+1,x-1)) {
+                    if (m > tau_high && soft_edges.at<double>(y,x) > tau_flow){
+                        seeds.push(std::make_pair(y,x));
                         edges.at<double>(y,x) =255;
                     }else if (m > tau_low){
                         edges.at<double>(y,x) = 1;
                     }
                 }
             } else {
-                if(m > mag.at<double>(y-1,x-1) and m >= mag.at<double>(y+1,x+1)){
-                    if (m > tau_high and soft_edges.at<double>(y,x) > tau_flow){
-                        seeds.push(std::make_pair(x,y));
+                if(m > mag.at<double>(y-1,x-1) && m >= mag.at<double>(y+1,x+1)){
+                    if (m > tau_high && soft_edges.at<double>(y,x) > tau_flow){
+                        seeds.push(std::make_pair(y,x));
                         edges.at<double>(y,x) =255;
                     }else if (m > tau_low){
                         edges.at<double>(y,x) = 1;
                     }
                 }
-            }
+            }*/
         }
     }
 
@@ -197,39 +277,47 @@ cv::Mat ARDepth::Canny(const cv::Mat& soft_edges, const cv::Mat& image){
         std::pair<int, int> seed = seeds.front();
         seeds.pop();
 
-        int x = seed.first;
-        int y = seed.second;
-        if (x < width and y < height and edges.at<double>(y+1,x+1) == 1) {
+        int y = seed.first;
+        int x = seed.second;
+        if (x < width && y < height && edges.at<double>(y+1,x+1) == 1) {
             edges.at<double>(y+1,x+1) = 255;
-            seeds.push(std::make_pair(x + 1, y + 1));
+            //seeds.push(std::make_pair(x + 1, y + 1));
+			seeds.push(std::make_pair(y + 1, x + 1));
         }
-        if (x > 0 and y < height and edges.at<double>(y-1,x+1) == 1) {
-            edges.at<double>(y-1,x+1) = 255;
-            seeds.push(std::make_pair(x+1, y-1));
-        }
-        if (y < height and edges.at<double>(y, x+1) == 1) {
-            edges.at<double>(y, x+1) = 255;
-            seeds.push(std::make_pair(x+1, y));
-        }
-        if (x < width and y > 0 and edges.at<double>(y+1,x-1) == 1) {
+        if (x > 0 && y < height && edges.at<double>(y+1,x-1) == 1) {
             edges.at<double>(y+1,x-1) = 255;
-            seeds.push(std::make_pair(x-1,y+1));
+            /*seeds.push(std::make_pair(x+1, y-1));*/
+			seeds.push(std::make_pair(y+1, x-1));
         }
-        if (x > 0 and y > 0 and edges.at<double>(y-1,x-1) == 1) {
-            edges.at<double>(y-1,x-1) = 255;
-            seeds.push(std::make_pair(x-1,y-1));
-        }
-        if (y > 0 and edges.at<double>(y, x-1) == 1) {
-            edges.at<double>(y, x-1) = 255;
-            seeds.push(std::make_pair(x-1, y));
-        }
-        if (y < width and edges.at<double>(y+1, x) == 1) {
+        if (y < height && edges.at<double>(y+1, x) == 1) {
             edges.at<double>(y+1, x) = 255;
-            seeds.push(std::make_pair(x, y+1));
+            //seeds.push(std::make_pair(x+1, y));
+			seeds.push(std::make_pair(y+1, x));
         }
-        if (x > 0 and edges.at<double>(y-1, x) == 1) {
+        if (x < width && y > 0 && edges.at<double>(y-1,x+1) == 1) {
+            edges.at<double>(y-1,x+1) = 255;
+            //seeds.push(std::make_pair(x-1,y+1));
+			seeds.push(std::make_pair(y-1, x+1));
+        }
+        if (x > 0 && y > 0 && edges.at<double>(y-1,x-1) == 1) {
+            edges.at<double>(y-1,x-1) = 255;
+            //seeds.push(std::make_pair(x-1,y-1));
+			seeds.push(std::make_pair(y - 1, x - 1));
+        }
+        if (y > 0 && edges.at<double>(y-1, x) == 1) {
             edges.at<double>(y-1, x) = 255;
-            seeds.push(std::make_pair(x, y-1));
+            //seeds.push(std::make_pair(x-1, y));
+			seeds.push(std::make_pair(y-1, x));
+        }
+        if (x < width && edges.at<double>(y, x+1) == 1) {
+            edges.at<double>(y, x+1) = 255;
+            //seeds.push(std::make_pair(x, y+1));
+			seeds.push(std::make_pair(y, x+1));
+        }
+        if (x > 0 && edges.at<double>(y, x-1) == 1) {
+            edges.at<double>(y, x-1) = 255;
+            //seeds.push(std::make_pair(x, y-1));
+			seeds.push(std::make_pair(y, x-1));
         }
 
     }
@@ -279,7 +367,7 @@ cv::Mat ARDepth::GetInitialization(const cv::Mat& sparse_points, const cv::Mat& 
     return initialization;
 }
 
-cv::Mat ARDepth::DensifyFrame(const cv::Mat& sparse_points, const cv::Mat& hard_edges, const cv::Mat& soft_edges, const cv::Mat& last_depth_map){
+cv::Mat ARDepth::DensifyFrame(const cv::Mat& sparse_points, const cv::Mat& confidence_map, const cv::Mat& hard_edges, const cv::Mat& soft_edges, const cv::Mat& last_depth_map){
 
     int w = sparse_points.cols;
     int h = sparse_points.rows;
@@ -303,11 +391,12 @@ cv::Mat ARDepth::DensifyFrame(const cv::Mat& sparse_points, const cv::Mat& hard_
             int idx = x+y*w;
             x0(idx) = initialization.at<double>(y,x);
             if(sparse_points.at<double>(y,x)>0.00){
-                tripletList.emplace_back(Eigen::Triplet<double>(num_entries, idx, lambda_d));
-                b(num_entries) = (1.0 / sparse_points.at<double>(y,x)) * lambda_d;
+				double confidence = confidence_map.at<double>(y, x);
+                tripletList.emplace_back(Eigen::Triplet<double>(num_entries, idx, lambda_d * confidence));
+                b(num_entries) = (1.0 / sparse_points.at<double>(y,x)) * (lambda_d * confidence);
                 num_entries++;
             }
-            else if(!last_depth_map.empty() and last_depth_map.at<double>(y,x)>0){
+            else if(!last_depth_map.empty() && last_depth_map.at<double>(y,x)>0){
                 tripletList.emplace_back(Eigen::Triplet<double>(num_entries, idx, lambda_t));
                 b(num_entries) = (1.0 / last_depth_map.at<double>(y,x)) * lambda_t;
                 num_entries++;
@@ -383,14 +472,29 @@ cv::Mat ARDepth::TemporalMedian(const std::deque<cv::Mat>& depth_maps){
     return depth_map;
 }
 
-void ARDepth::visualizeImg(const cv::Mat& raw_img, const cv::Mat& raw_depth, const cv::Mat& filtered_depth){
-    const int width_visualize = 360;
-    const int height_visualize = 640;
+void ARDepth::visualizeImg(const cv::Mat& raw_img, const cv::Mat& soft_edges, const cv::Mat& edges, const int frameNum) {
+	//Color image
+	cv::Mat color_visual;
+	cv::resize(raw_img, color_visual, cv::Size(width_visualize, height_visualize), 0, 0, cv::INTER_AREA);
 
-    //Color image
-    cv::Mat color_visual;
-    cv::resize(raw_img, color_visual, cv::Size(360, 640), 0, 0, cv::INTER_AREA);
+	//Soft edges
+	cv::Mat soft_edges_visual = cv::Mat::zeros(soft_edges.size(), soft_edges.depth());
+	//soft_edges.copyTo(soft_edges_visual);
+	soft_edges.convertTo(soft_edges_visual, CV_8U, 255);
 
+	//Canny edges
+	cv::Mat canny_visual = cv::Mat::zeros(edges.size(), edges.depth());
+	edges.convertTo(canny_visual, CV_8U, 255);
+
+	std::cout << "Saving images..." << std::endl;
+	cv::imwrite("output/color/" + std::to_string(frameNum) + ".jpg", color_visual);
+	cv::imwrite("output/soft_edges/" + std::to_string(frameNum) + ".jpg", soft_edges_visual);
+	cv::imwrite("output/canny/" + std::to_string(frameNum) + ".jpg", canny_visual);
+	cv::waitKey(1);
+}
+void ARDepth::visualizeImg(const cv::Mat& raw_img, const cv::Mat& raw_depth, const cv::Mat& filtered_depth, const cv::Mat& soft_edges, const cv::Mat& edges, const int frameNum){
+
+   
     //Sparse depth map
     cv::Mat raw_depth_visual = cv::Mat::zeros(raw_depth.size(), raw_depth.depth());
     cv::Mat tmp = cv::Mat::ones(raw_depth.size(), raw_depth.depth())*255;
@@ -408,16 +512,21 @@ void ARDepth::visualizeImg(const cv::Mat& raw_img, const cv::Mat& raw_depth, con
     cv::resize(filtered_depthmap_visual, filtered_depthmap_visual, cv::Size(width_visualize, height_visualize));
 
     //Visualize
-    cv::imshow("Color", color_visual);
-    cv::imshow("Sparse depth", raw_depth_visual);
-    cv::imshow("Dense depth", filtered_depthmap_visual);
-    cv::waitKey(1);
+    //cv::imshow("Color", color_visual);
+    //cv::imshow("Sparse depth", raw_depth_visual);
+    //cv::imshow("Dense depth", filtered_depthmap_visual);
+
+
+	cv::imwrite("output/sparse/" + std::to_string(frameNum) + ".jpg", raw_depth_visual);
+	cv::imwrite("output/dense/" + std::to_string(frameNum) + ".jpg", filtered_depthmap_visual);
+	visualizeImg(raw_img, soft_edges, edges, frameNum);
 }
 
 void ARDepth::run() {
     ColmapReader reader;
     Reconstruction recon = reader.ReadColmap(input_colmap, input_frames);
-    int skip_frames = recon.GetNeighboringKeyframes(recon.GetNeighboringKeyframes(recon.ViewIds()[15]).first).second;
+    //int skip_frames = recon.GetNeighboringKeyframes(recon.GetNeighboringKeyframes(recon.ViewIds()[15]).first).second;
+	int skip_frames = 0;
 
     std::deque<cv::Mat> last_depths;
     cv::Mat last_depth;
@@ -432,39 +541,67 @@ void ARDepth::run() {
 
         std::cout<<"==> Processing frame "<<recon.views[frame].name<<std::endl;
         cv::Mat base_img = recon.GetImage(frame, resize);
+		cv::Mat base_img_full = recon.GetImage(frame, false);
 
         std::vector<cv::Mat> flows;
         for(const auto& ref : reference_frames){
-            cv::Mat ref_img = recon.GetImage(ref, resize);
-            flows.emplace_back(GetFlow(base_img, ref_img));
+            //cv::Mat ref_img = recon.GetImage(ref, resize);
+			cv::Mat ref_img = recon.GetImage(ref, false);
+            flows.emplace_back(GetFlow(base_img_full, ref_img));
         }
-        cv::Mat soft_edges = GetSoftEdges(base_img, flows);
-//        cv::Mat edges = Canny(soft_edges, base_img);
-        cv::Mat edges;
+		std::cout << "Getting soft edges" << std::endl;
+        cv::Mat soft_edges = GetSoftEdges(base_img_full, flows);
+
+		cv::Mat soft_edges_resized;
+		cv::resize(soft_edges, soft_edges_resized, cv::Size(width_resize, height_resize));
+
+		cv::Mat soft_edges_thresholded;
+		cv::threshold(soft_edges_resized, soft_edges_thresholded, tau_flow, 1, CV_THRESH_BINARY);
+
+		std::cout << "Canny edges..." << std::endl;
+        //cv::Mat edges = Canny(soft_edges_resized, base_img);
+		
+		cv::Mat edges;
         cv::Canny(base_img, edges, 50, 200);
         edges.convertTo(edges, CV_64FC1);
+
+		edges = edges.mul(soft_edges_thresholded);
 
 
         int last_keyframe = frame;
         if(!recon.views[frame].isKeyframe()){
             std::pair<int,int> neiboring_keyframes = recon.GetNeighboringKeyframes(frame);
-            assert(neiboring_keyframes.first!=-1 and neiboring_keyframes.second!=-1);
+            assert(neiboring_keyframes.first!=-1 && neiboring_keyframes.second!=-1);
             last_keyframe = neiboring_keyframes.first;
         }
 
+		if (edgesOnly == false) {
+			
+			//cv::resize(edges, edges_resized, cv::Size(width_resize, height_resize));
 
-        cv::Mat depth = DensifyFrame(recon.GetSparseDepthMap(last_keyframe, resize), edges, soft_edges, last_depth);
-        last_depths.push_back(depth);
-        if(last_depths.size() > k_T)
-            last_depths.pop_front();
+			std::cout << "Densifying..." << std::endl;
+			std::pair<cv::Mat, cv::Mat> sparseDepth = recon.GetSparseDepthWithSize(last_keyframe, width_resize, height_resize);
+			//cv::Mat depth = DensifyFrame(recon.GetSparseDepthMap(last_keyframe, resize), edges, soft_edges_resized, last_depth);
+			cv::Mat depth = DensifyFrame(sparseDepth.first, sparseDepth.second, edges, soft_edges_resized, last_depth);
 
-        cv::Mat filtered_depth = TemporalMedian(last_depths);
-        last_depth = depth;
+			last_depths.push_back(depth);
+			if (last_depths.size() > k_T)
+				last_depths.pop_front();
 
-        if(visualize) {
+			std::cout << "Temporal median..." << std::endl;
+			cv::Mat filtered_depth = TemporalMedian(last_depths);
+			last_depth = depth;
+		}
+		
+
+		if (edgesOnly) {
+			cv::Mat raw_img = recon.GetImage(frame, false);
+			visualizeImg(raw_img, soft_edges, edges, count);
+		}
+		else if(visualize) {
             cv::Mat raw_img = recon.GetImage(frame, false);
             cv::Mat raw_depth = recon.GetSparseDepthMap(last_keyframe, false);
-            visualizeImg(raw_img, raw_depth, last_depth);
+            visualizeImg(raw_img, raw_depth, last_depth, soft_edges, edges, count);
         }
         count++;
     }
