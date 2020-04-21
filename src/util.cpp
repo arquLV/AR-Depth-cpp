@@ -93,6 +93,10 @@ std::vector<int> Reconstruction::GetReferenceFrames(int view_id){
 cv::Mat Reconstruction::GetImage(int view_id, bool resize){
     return views[view_id].GetImage(image_folder, resize);
 }
+cv::Mat Reconstruction::GetSceneImage(int view_id, bool resize) {
+	return views[view_id].GetImage(scenes_folder, resize);
+}
+
 
 Eigen::Matrix3d Reconstruction::GetQuat(int view_id){
     return views[view_id].Rotation();
@@ -131,8 +135,8 @@ std::pair<cv::Mat, cv::Mat> Reconstruction::GetSparseDepthWithSize(int frame_id,
 		Eigen::Vector3d pos3d = points3d[point_id].position3d;
 		double depth = (pos3d - view_pos).norm();
 
-		int y = (coord.second / camera.height) * height;
-		int x = (coord.first / camera.width) * width;
+		int y = (coord.second / 2160) * height;
+		int x = ((coord.first + 67) / 1215) * width;
 		double confidence = 1 - points3d[point_id].error;
 		if (confidence > confidence_map.at<double>(y, x)) {
 			confidence_map.at<double>(y, x) = confidence;
@@ -141,5 +145,16 @@ std::pair<cv::Mat, cv::Mat> Reconstruction::GetSparseDepthWithSize(int frame_id,
 	}
 
 	return std::make_pair(depth_map, confidence_map);
+}
+
+double Reconstruction::GetObjectDepth(int frame_id) {
+	Point coords = objectCoords[frame_id];
+	View view = views[frame_id];
+	Eigen::Vector3d view_pos = view.Position();
+
+	Eigen::Vector3d pos3d = coords.position3d;
+	double depth = (pos3d - view_pos).norm();
+
+	return depth;
 }
 

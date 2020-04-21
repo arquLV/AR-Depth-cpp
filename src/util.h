@@ -56,9 +56,11 @@ public:
     std::map<int, Camera> cameras;
     std::map<int, View> views;
     std::map<int, Point> points3d;
+	std::map<int, Point> objectCoords;
     int min_view_id=-1;
     int max_view_id=-1;
     std::string image_folder="";
+	std::string scenes_folder = "";
 
     std::vector<int> ViewIds();
 
@@ -66,9 +68,12 @@ public:
     std::vector<int> GetReferenceFrames(int view_id);
 
     cv::Mat GetImage(int view_id, bool resize);
+	cv::Mat GetSceneImage(int view_id, bool resize);
 
     Eigen::Matrix3d GetQuat(int view_id);
 
     cv::Mat GetSparseDepthMap(int frame_id, bool resize);
 	std::pair<cv::Mat, cv::Mat> GetSparseDepthWithSize(int frame_id, int width, int height);
+
+	double GetObjectDepth(int frame_id);
 };

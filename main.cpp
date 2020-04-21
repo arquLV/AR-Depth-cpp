@@ -18,10 +18,11 @@ int main(int argc, char* argv[]) {
 	}
 	
     std::string input_frames = "data/" + dataDir + "frames";
+	std::string input_scenes = "data/" + dataDir + "sceneImgs";
     std::string input_colmap = "data/" + dataDir + "reconstruction";
     bool resize = true;
     bool visualize = true;
-    ARDepth ardepth(input_frames, input_colmap, resize, visualize, edgesOnly);
+    ARDepth ardepth(input_frames, input_colmap, input_scenes, resize, visualize, edgesOnly);
     ardepth.run();
 
     return 0;

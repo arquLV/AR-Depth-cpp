@@ -104,12 +104,39 @@ std::map<int, Point> ColmapReader::ReadColmapPoints(std::string filename) {
 
 };
 
-Reconstruction ColmapReader::ReadColmap(const std::string &poses_folder, const std::string &images_folder) {
+std::map<int, Point> ColmapReader::ReadObjectCoords(std::string filename) {
+	std::map<int, Point> points;
+	std::ifstream ifs(filename);
+	std::string str;
+	if (ifs.fail()) {
+		std::cerr << "Failed to read point file" << std::endl;
+		return points;
+	}
+
+	int id_value = 1;
+	while (getline(ifs, str)) {
+		std::vector <std::string> tokens;
+		split(str, tokens, ' ');
+
+		points[id_value] = Point();
+		points[id_value].id = id_value;
+		points[id_value].position3d = Eigen::Vector3d(std::stod(tokens[0]), std::stod(tokens[1]),
+			std::stod(tokens[2]));
+
+		id_value += 1;
+	}
+
+	return points;
+}
+
+Reconstruction ColmapReader::ReadColmap(const std::string &poses_folder, const std::string &images_folder, const std::string& scenes_folder) {
     Reconstruction recon;
     recon.image_folder = images_folder;
+	recon.scenes_folder = scenes_folder;
     recon.cameras = ReadColmapCamera(poses_folder + "/cameras.txt");
     recon.views = ReadColmapImages(poses_folder + "/images.txt");
     recon.points3d = ReadColmapPoints(poses_folder + "/points3D.txt");
+	recon.objectCoords = ReadObjectCoords(poses_folder + "/coords.txt");
     recon.min_view_id = (recon.views.begin()->first);
     recon.max_view_id = ((--recon.views.end())->first);
     std::cout << "Number of points: " << recon.points3d.size() << std::endl;

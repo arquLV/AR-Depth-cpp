@@ -17,9 +17,10 @@
 
 class ARDepth{
 public:
-    ARDepth(const std::string& input_frames, const std::string& input_colmap, const bool& resize, const bool& visualize, const bool& edgesOnly)
+    ARDepth(const std::string& input_frames, const std::string& input_colmap, const std::string& input_scenes, const bool& resize, const bool& visualize, const bool& edgesOnly)
             :input_frames(input_frames),
              input_colmap(input_colmap),
+			 input_scenes(input_scenes),
              resize(resize),
              visualize(visualize), 
 			 edgesOnly(edgesOnly) {};
@@ -30,6 +31,7 @@ public:
 	const int height_visualize = 1280;
 
     const std::string input_frames;
+	const std::string input_scenes;
     const std::string input_colmap;
 	const bool edgesOnly;
     const bool resize;
@@ -41,8 +43,8 @@ public:
     const int k_T = 7;
     /*const int k_F = 31;*/
 	const int k_F = 31;
-    const double lambda_d = 1.3;
-    const double lambda_t = 0.015;
+    const double lambda_d = 1.4;
+    const double lambda_t = 0.01;
     const double lambda_s = 1;
     const int num_solver_iterations = 500;
     const cv::Ptr<cv::DenseOpticalFlow> dis = cv::optflow::createOptFlow_DIS(2);
@@ -61,8 +63,8 @@ public:
 
     cv::Mat Canny(const cv::Mat& soft_edges, const cv::Mat& image);
 
-	void visualizeImg(const cv::Mat& raw_img, const cv::Mat& soft_edges, const cv::Mat& edges, const int frameNum);
-    void visualizeImg(const cv::Mat& raw_img, const cv::Mat& raw_depth, const cv::Mat& filtered_depth, const cv::Mat& soft_edges, const cv::Mat& edges, const int frameNum);
+	void visualizeImg(const cv::Mat& soft_edges, const cv::Mat& edges, const int frameNum);
+    void visualizeImg(const cv::Mat& raw_img, const cv::Mat& scene_img, const cv::Mat& raw_depth, const cv::Mat& filtered_depth, const cv::Mat& soft_edges, const cv::Mat& edges, const double objectDepth, const int frameNum);
 
     cv::Mat GetInitialization(const cv::Mat& sparse_points, const cv::Mat& last_depth_map);
 
