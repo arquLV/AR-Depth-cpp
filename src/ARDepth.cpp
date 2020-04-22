@@ -556,7 +556,7 @@ cv::Mat ARDepth::DensifyFramePyramid(const std::vector<Reconstruction::SparseMap
     for(int y=0; y<h; y++)
         for(int x=0; x<w; x++)
             depth.at<double>(y,x) = 1.0/(x_vec(x+y*w)+1e-7);
-
+	std::cout << "Returning depth..." << std::endl;
     return depth;
 }
 
@@ -590,10 +590,8 @@ cv::Mat ARDepth::TemporalMedian(const std::deque<cv::Mat>& depth_maps){
     return depth_map;
 }
 
-void ARDepth::visualizeImg(const cv::Mat& raw_img, const cv::Mat& soft_edges, const cv::Mat& edges, const int frameNum) {
-	//Color image
-	cv::Mat color_visual;
-	cv::resize(raw_img, color_visual, cv::Size(width_visualize, height_visualize), 0, 0, cv::INTER_AREA);
+void ARDepth::visualizeImg(const cv::Mat& soft_edges, const cv::Mat& edges, const int frameNum) {
+	
 
 	//Soft edges
 	cv::Mat soft_edges_visual = cv::Mat::zeros(soft_edges.size(), soft_edges.depth());
@@ -605,19 +603,30 @@ void ARDepth::visualizeImg(const cv::Mat& raw_img, const cv::Mat& soft_edges, co
 	edges.convertTo(canny_visual, CV_8U, 255);
 
 	std::cout << "Saving images..." << std::endl;
-	cv::imwrite("output/color/" + std::to_string(frameNum) + ".jpg", color_visual);
 	cv::imwrite("output/soft_edges/" + std::to_string(frameNum) + ".jpg", soft_edges_visual);
 	cv::imwrite("output/canny/" + std::to_string(frameNum) + ".jpg", canny_visual);
 	cv::waitKey(1);
 }
-void ARDepth::visualizeImg(const cv::Mat& raw_img, const cv::Mat& raw_depth, const cv::Mat& filtered_depth, const cv::Mat& soft_edges, const cv::Mat& edges, const int frameNum){
+void ARDepth::visualizeImg(const cv::Mat& raw_img, const cv::Mat& scene_img, const cv::Mat& raw_depth, const cv::Mat& filtered_depth, const cv::Mat& soft_edges, const cv::Mat& edges, const double objectDepth, const int frameNum){
 
+	//Color image
+	cv::Mat color_visual;
+	cv::resize(raw_img, color_visual, cv::Size(width_visualize, height_visualize), 0, 0, cv::INTER_AREA);
    
     //Sparse depth map
     cv::Mat raw_depth_visual = cv::Mat::zeros(raw_depth.size(), raw_depth.depth());
     cv::Mat tmp = cv::Mat::ones(raw_depth.size(), raw_depth.depth())*255;
     tmp.copyTo(raw_depth_visual, raw_depth>0);
     cv::resize(raw_depth_visual, raw_depth_visual, cv::Size(width_visualize, height_visualize), 0, 0, cv::INTER_AREA);
+	cv::dilate(raw_depth_visual, raw_depth_visual, cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3)));
+	cv::threshold(raw_depth_visual, raw_depth_visual, 0.01, 1, CV_THRESH_BINARY);
+
+	cv::Mat sparsePointMask = raw_depth_visual > 0.01;
+	cv::Mat sparse_depth_overlay = color_visual.clone();
+	cv::Mat white(sparse_depth_overlay.rows, sparse_depth_overlay.cols, CV_8UC3, cv::Scalar(255, 255, 255));
+
+	white.copyTo(sparse_depth_overlay, sparsePointMask);
+
 
     //Dense depth map
     double min_val, max_val;
@@ -629,20 +638,38 @@ void ARDepth::visualizeImg(const cv::Mat& raw_img, const cv::Mat& raw_depth, con
     cv::applyColorMap(filtered_depthmap_visual, filtered_depthmap_visual, 2); //COLORMAP_JET
     cv::resize(filtered_depthmap_visual, filtered_depthmap_visual, cv::Size(width_visualize, height_visualize));
 
+	//std::cout << "Scene size: " << scene_img.cols << "x" << scene_img.rows << std::endl;
+	cv::Mat scene_resized;
+	cv::resize(scene_img, scene_resized, cv::Size(960, 1920), 0, 0, cv::INTER_AREA);
+	//std::cout << "Scene resized: " << scene_resized.cols << "x" << scene_resized.rows << std::endl;
+
+
+	cv::Mat scene_padded = raw_img.clone(); // 1080x1920
+	//std::cout << "Scene padded size: " << scene_padded.cols << "x" << scene_padded.rows << std::endl;
+	cv::Rect centerRect((scene_padded.cols - scene_resized.cols) / 2, 0, scene_resized.cols, scene_padded.rows);
+
+	cv::Mat depthMask = filtered_depth > (0.85*objectDepth);
+	cv::resize(depthMask, depthMask, scene_resized.size());
+
+	scene_resized.copyTo(scene_padded(centerRect), depthMask);
+	cv::resize(scene_padded, scene_padded, cv::Size(width_visualize, height_visualize));
+
     //Visualize
     //cv::imshow("Color", color_visual);
     //cv::imshow("Sparse depth", raw_depth_visual);
     //cv::imshow("Dense depth", filtered_depthmap_visual);
 
 
-	cv::imwrite("output/sparse/" + std::to_string(frameNum) + ".jpg", raw_depth_visual);
+	cv::imwrite("output/sparse/" + std::to_string(frameNum) + ".jpg", sparse_depth_overlay);
 	cv::imwrite("output/dense/" + std::to_string(frameNum) + ".jpg", filtered_depthmap_visual);
-	visualizeImg(raw_img, soft_edges, edges, frameNum);
+	cv::imwrite("output/color/" + std::to_string(frameNum) + ".jpg", color_visual);
+	cv::imwrite("output/occluded/" + std::to_string(frameNum) + ".jpg", scene_padded);
+	visualizeImg(soft_edges, edges, frameNum);
 }
 
 void ARDepth::run() {
     ColmapReader reader;
-    Reconstruction recon = reader.ReadColmap(input_colmap, input_frames);
+    Reconstruction recon = reader.ReadColmap(input_colmap, input_frames, input_scenes);
     //int skip_frames = recon.GetNeighboringKeyframes(recon.GetNeighboringKeyframes(recon.ViewIds()[15]).first).second;
 	int skip_frames = 0;
 
@@ -680,7 +707,7 @@ void ARDepth::run() {
         //cv::Mat edges = Canny(soft_edges_resized, base_img);
 		
 		cv::Mat edges;
-        cv::Canny(base_img, edges, 50, 200);
+        cv::Canny(base_img, edges, 35, 170);
         edges.convertTo(edges, CV_64FC1);
 
 		edges = edges.mul(soft_edges_thresholded);
@@ -704,6 +731,7 @@ void ARDepth::run() {
 
 			cv::Mat depth = DensifyFramePyramid(sparsePyramid, edges, soft_edges_resized, last_depth);
 
+
 			last_depths.push_back(depth);
 			if (last_depths.size() > k_T)
 				last_depths.pop_front();
@@ -715,13 +743,14 @@ void ARDepth::run() {
 		
 
 		if (edgesOnly) {
-			cv::Mat raw_img = recon.GetImage(frame, false);
-			visualizeImg(raw_img, soft_edges, edges, count);
+			visualizeImg(soft_edges, edges, count);
 		}
 		else if(visualize) {
             cv::Mat raw_img = recon.GetImage(frame, false);
-            cv::Mat raw_depth = recon.GetSparseDepthMap(last_keyframe, false);
-            visualizeImg(raw_img, raw_depth, last_depth, soft_edges, edges, count);
+			cv::Mat scene_img = recon.GetSceneImage(frame+1, false);
+            cv::Mat raw_depth = recon.GetSparseDepthWithSize(last_keyframe, 1080, 1920).first;
+			double objectDepth = recon.GetObjectDepth(frame);
+            visualizeImg(raw_img, scene_img, raw_depth, last_depth, soft_edges, edges, objectDepth, count);
         }
         count++;
     }

@@ -12,5 +12,7 @@ public:
 
     std::map<int, Point> ReadColmapPoints(std::string filename);
 
-    Reconstruction ReadColmap(const std::string &poses_folder, const std::string &images_folder);
+	std::map<int, Point> ReadObjectCoords(std::string filename);
+
+    Reconstruction ReadColmap(const std::string &poses_folder, const std::string &images_folder, const std::string &scenes_folder);
 };
