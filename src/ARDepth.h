@@ -36,15 +36,15 @@ public:
 	const bool edgesOnly;
     const bool resize;
     const bool visualize;
-    const double tau_high = 0.784;
-    const double tau_low = 0.196;
-    const double tau_flow = 0.06;
+    const double tau_high = 0.80;
+    const double tau_low = 0.16;
+    const double tau_flow = 0.07;
     const int k_I = 5;
     const int k_T = 7;
     /*const int k_F = 31;*/
 	const int k_F = 31;
-    const double lambda_d = 1.4;
-    const double lambda_t = 0.01;
+    const double lambda_d = 1.1;
+    const double lambda_t = 0.02;
     const double lambda_s = 1;
     const int num_solver_iterations = 500;
     const cv::Ptr<cv::DenseOpticalFlow> dis = cv::optflow::createOptFlow_DIS(2);

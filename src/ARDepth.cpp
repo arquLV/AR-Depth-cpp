@@ -522,18 +522,19 @@ void ARDepth::visualizeImg(const cv::Mat& raw_img, const cv::Mat& scene_img, con
 
 	//std::cout << "Scene size: " << scene_img.cols << "x" << scene_img.rows << std::endl;
 	cv::Mat scene_resized;
-	cv::resize(scene_img, scene_resized, cv::Size(0.5 * height_visualize, height_visualize), 0, 0, cv::INTER_AREA);
+	cv::resize(scene_img, scene_resized, cv::Size(960, 1920), 0, 0, cv::INTER_AREA);
 	//std::cout << "Scene resized: " << scene_resized.cols << "x" << scene_resized.rows << std::endl;
 
 
-	cv::Mat scene_padded = color_visual.clone();
+	cv::Mat scene_padded = raw_img.clone(); // 1080x1920
 	//std::cout << "Scene padded size: " << scene_padded.cols << "x" << scene_padded.rows << std::endl;
 	cv::Rect centerRect((scene_padded.cols - scene_resized.cols) / 2, 0, scene_resized.cols, scene_padded.rows);
 
-	cv::Mat depthMask = filtered_depth > (0.9*objectDepth);
+	cv::Mat depthMask = filtered_depth > (0.85*objectDepth);
 	cv::resize(depthMask, depthMask, scene_resized.size());
-	scene_resized.copyTo(scene_padded(centerRect), depthMask);
 
+	scene_resized.copyTo(scene_padded(centerRect), depthMask);
+	cv::resize(scene_padded, scene_padded, cv::Size(width_visualize, height_visualize));
 
     //Visualize
     //cv::imshow("Color", color_visual);
@@ -588,7 +589,7 @@ void ARDepth::run() {
         //cv::Mat edges = Canny(soft_edges_resized, base_img);
 		
 		cv::Mat edges;
-        cv::Canny(base_img, edges, 35, 210);
+        cv::Canny(base_img, edges, 35, 170);
         edges.convertTo(edges, CV_64FC1);
 
 		edges = edges.mul(soft_edges_thresholded);
@@ -627,7 +628,7 @@ void ARDepth::run() {
 		}
 		else if(visualize) {
             cv::Mat raw_img = recon.GetImage(frame, false);
-			cv::Mat scene_img = recon.GetSceneImage(frame, false);
+			cv::Mat scene_img = recon.GetSceneImage(frame+1, false);
             cv::Mat raw_depth = recon.GetSparseDepthWithSize(last_keyframe, 1080, 1920).first;
 			double objectDepth = recon.GetObjectDepth(frame);
             visualizeImg(raw_img, scene_img, raw_depth, last_depth, soft_edges, edges, objectDepth, count);
