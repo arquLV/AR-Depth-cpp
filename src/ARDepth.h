@@ -43,8 +43,8 @@ public:
     const int k_T = 7;
     /*const int k_F = 31;*/
 	const int k_F = 31;
-    const double lambda_d = 1.1;
-    const double lambda_t = 0.02;
+    const double lambda_d = 1.3;
+    const double lambda_t = 0.015;
     const double lambda_s = 1;
     const int num_solver_iterations = 500;
     const cv::Ptr<cv::DenseOpticalFlow> dis = cv::optflow::createOptFlow_DIS(2);
@@ -68,7 +68,7 @@ public:
 
     cv::Mat GetInitialization(const cv::Mat& sparse_points, const cv::Mat& last_depth_map);
 
-    cv::Mat DensifyFramePyramid(const std::vector<Reconstruction::SparseMap>& sparsePyramid, const cv::Mat& hard_edges, const cv::Mat& soft_edges, const cv::Mat& last_depth_map);
+    cv::Mat DensifyFramePyramid(const std::vector<Reconstruction::SparseMap>& sparsePyramid, const cv::Mat& hard_edges, const cv::Mat& soft_edges, const cv::Mat& last_depth_map, const int frameNum);
 
     template <typename T>
     T median(std::vector<T>& c);
