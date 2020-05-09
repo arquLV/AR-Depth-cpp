@@ -96,6 +96,9 @@ cv::Mat Reconstruction::GetImage(int view_id, bool resize){
 cv::Mat Reconstruction::GetSceneImage(int view_id, bool resize) {
 	return views[view_id].GetImage(scenes_folder, resize);
 }
+cv::Mat Reconstruction::GetEdgesImage(int view_id, bool resize) {
+	return views[view_id].GetImage(edges_folder, resize);
+}
 
 
 Eigen::Matrix3d Reconstruction::GetQuat(int view_id){
@@ -149,11 +152,17 @@ std::pair<cv::Mat, cv::Mat> Reconstruction::GetSparseDepthWithSize(int frame_id,
 
 double Reconstruction::GetObjectDepth(int frame_id) {
 	Point coords = objectCoords[frame_id];
+	Point extent = objectSize[frame_id];
+
+
 	View view = views[frame_id];
 	Eigen::Vector3d view_pos = view.Position();
 
 	Eigen::Vector3d pos3d = coords.position3d;
+	Eigen::Vector3d ext3d = extent.position3d;
+
 	double depth = (pos3d - view_pos).norm();
+	depth -= (std::max(ext3d.x(), ext3d.z()) * 1.3);
 
 	return depth;
 }

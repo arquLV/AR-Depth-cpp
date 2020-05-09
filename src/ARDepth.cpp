@@ -75,7 +75,8 @@ std::pair<cv::Mat, cv::Mat> ARDepth::GetFlowGradientMagnitude(const cv::Mat& flo
 
     for(int y=0; y<height; y++) {
         for(int x=1; x<width; x++){
-            Eigen::Vector2d gradient_dir(img_grad_y.at<double>(y,x), (img_grad_x.at<double>(y,x)));
+            //Eigen::Vector2d gradient_dir(img_grad_y.at<double>(y,x), (img_grad_x.at<double>(y,x)));
+			Eigen::Vector2d gradient_dir(img_grad_x.at<double>(y, x), img_grad_y.at<double>(y, x));
             if(gradient_dir.norm()==0){
                 reliability.at<float>(y,x) = 0;
                 continue;
@@ -139,8 +140,12 @@ cv::Mat ARDepth::GetSoftEdges(const cv::Mat& image, const std::vector<cv::Mat>& 
     double minVal, maxVal;
     cv::Point minLoc, maxLoc;
     cv::minMaxLoc(flow_gradient_magnitude, &minVal, &maxVal, &minLoc, &maxLoc);
-    flow_gradient_magnitude /= (maxVal * 0.7);
-	flow_gradient_magnitude = cv::min(flow_gradient_magnitude, 1.0);
+    flow_gradient_magnitude /= maxVal;
+	//flow_gradient_magnitude = cv::min(flow_gradient_magnitude, 1.0);
+
+	//cv::threshold(flow_gradient_magnitude, flow_gradient_magnitude, tau_flow, 1, CV_THRESH_BINARY);
+
+	//cv::morphologyEx(flow_gradient_magnitude, flow_gradient_magnitude, cv::MORPH_OPEN, cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3)));
 
     return flow_gradient_magnitude;
 }
@@ -386,15 +391,26 @@ cv::Mat ARDepth::DensifyFrame(const cv::Mat& sparse_points, const cv::Mat& confi
 
     std::vector<Eigen::Triplet<double>> tripletList;
 
+	double maxConfidence;
+	cv::minMaxLoc(confidence_map, NULL, &maxConfidence, NULL, NULL);
+
     for(int y=1; y<h-1; y++){
         for(int x=1; x<w-1; x++){
             int idx = x+y*w;
             x0(idx) = initialization.at<double>(y,x);
             if(sparse_points.at<double>(y,x)>0.00){
 				double confidence = confidence_map.at<double>(y, x);
-                tripletList.emplace_back(Eigen::Triplet<double>(num_entries, idx, lambda_d * confidence));
-                b(num_entries) = (1.0 / sparse_points.at<double>(y,x)) * (lambda_d * confidence);
-                num_entries++;
+				confidence = confidence / maxConfidence;
+
+				if (confidence > 0.75) {
+					double weighted_lambda_d = lambda_d * confidence;
+
+					tripletList.emplace_back(Eigen::Triplet<double>(num_entries, idx, weighted_lambda_d));
+					b(num_entries) = (1.0 / sparse_points.at<double>(y, x)) * weighted_lambda_d;
+					num_entries++;
+				}
+
+				
             }
             else if(!last_depth_map.empty() && last_depth_map.at<double>(y,x)>0){
                 tripletList.emplace_back(Eigen::Triplet<double>(num_entries, idx, lambda_t));
@@ -505,9 +521,9 @@ void ARDepth::visualizeImg(const cv::Mat& raw_img, const cv::Mat& scene_img, con
 
 	cv::Mat sparsePointMask = raw_depth_visual > 0.01;
 	cv::Mat sparse_depth_overlay = color_visual.clone();
-	cv::Mat white(sparse_depth_overlay.rows, sparse_depth_overlay.cols, CV_8UC3, cv::Scalar(255, 255, 255));
+	cv::Mat red(sparse_depth_overlay.rows, sparse_depth_overlay.cols, CV_8UC3, cv::Scalar(0, 0, 255));
 
-	white.copyTo(sparse_depth_overlay, sparsePointMask);
+	red.copyTo(sparse_depth_overlay, sparsePointMask);
 
 
     //Dense depth map
@@ -521,19 +537,19 @@ void ARDepth::visualizeImg(const cv::Mat& raw_img, const cv::Mat& scene_img, con
     cv::resize(filtered_depthmap_visual, filtered_depthmap_visual, cv::Size(width_visualize, height_visualize));
 
 	//std::cout << "Scene size: " << scene_img.cols << "x" << scene_img.rows << std::endl;
-	cv::Mat scene_resized;
-	cv::resize(scene_img, scene_resized, cv::Size(960, 1920), 0, 0, cv::INTER_AREA);
+	//cv::Mat scene_resized;
+	//cv::resize(scene_img, scene_resized, cv::Size(960, 1920), 0, 0, cv::INTER_AREA);
 	//std::cout << "Scene resized: " << scene_resized.cols << "x" << scene_resized.rows << std::endl;
 
 
 	cv::Mat scene_padded = raw_img.clone(); // 1080x1920
 	//std::cout << "Scene padded size: " << scene_padded.cols << "x" << scene_padded.rows << std::endl;
-	cv::Rect centerRect((scene_padded.cols - scene_resized.cols) / 2, 0, scene_resized.cols, scene_padded.rows);
+	cv::Rect centerRect((scene_padded.cols - scene_img.cols) / 2, 0, scene_img.cols, scene_padded.rows);
 
-	cv::Mat depthMask = filtered_depth > (0.85*objectDepth);
-	cv::resize(depthMask, depthMask, scene_resized.size());
+	cv::Mat depthMask = filtered_depth > objectDepth;
+	cv::resize(depthMask, depthMask, scene_padded.size());
 
-	scene_resized.copyTo(scene_padded(centerRect), depthMask);
+	scene_img.copyTo(scene_padded(centerRect), depthMask(centerRect));
 	cv::resize(scene_padded, scene_padded, cv::Size(width_visualize, height_visualize));
 
     //Visualize
@@ -551,7 +567,7 @@ void ARDepth::visualizeImg(const cv::Mat& raw_img, const cv::Mat& scene_img, con
 
 void ARDepth::run() {
     ColmapReader reader;
-    Reconstruction recon = reader.ReadColmap(input_colmap, input_frames, input_scenes);
+    Reconstruction recon = reader.ReadColmap(input_colmap, input_frames, input_scenes, input_edges);
     //int skip_frames = recon.GetNeighboringKeyframes(recon.GetNeighboringKeyframes(recon.ViewIds()[15]).first).second;
 	int skip_frames = 0;
 
@@ -570,29 +586,81 @@ void ARDepth::run() {
         cv::Mat base_img = recon.GetImage(frame, resize);
 		cv::Mat base_img_full = recon.GetImage(frame, false);
 
-        std::vector<cv::Mat> flows;
-        for(const auto& ref : reference_frames){
-            //cv::Mat ref_img = recon.GetImage(ref, resize);
-			cv::Mat ref_img = recon.GetImage(ref, false);
-            flows.emplace_back(GetFlow(base_img_full, ref_img));
-        }
-		std::cout << "Getting soft edges" << std::endl;
-        cv::Mat soft_edges = GetSoftEdges(base_img_full, flows);
+        
 
+		//cv::Mat soft_edges_thresholded;
+		//cv::threshold(soft_edges_resized, soft_edges_thresholded, tau_flow, 1, CV_THRESH_BINARY);
+		cv::Mat soft_edges;
 		cv::Mat soft_edges_resized;
-		cv::resize(soft_edges, soft_edges_resized, cv::Size(width_resize, height_resize));
-
-		cv::Mat soft_edges_thresholded;
-		cv::threshold(soft_edges_resized, soft_edges_thresholded, tau_flow, 1, CV_THRESH_BINARY);
-
-		std::cout << "Canny edges..." << std::endl;
-        //cv::Mat edges = Canny(soft_edges_resized, base_img);
 		
-		cv::Mat edges;
-        cv::Canny(base_img, edges, 35, 170);
-        edges.convertTo(edges, CV_64FC1);
 
-		edges = edges.mul(soft_edges_thresholded);
+
+
+		cv::Mat edges;
+
+		if (precompEdges) {
+			cv::Mat edges_full = recon.GetEdgesImage(frame, false);
+			cv::cvtColor(edges_full, edges_full, CV_BGR2GRAY);
+			cv::threshold(edges_full, edges_full, 10, 255, CV_THRESH_BINARY);
+			//edges_full.convertTo(edges_full, CV_8U);
+			
+			//edges = recon.GetEdgesImage(frame, resize);
+			//cv::cvtColor(edges, edges, CV_GRAY2BGR);
+
+			
+			//cv::cvtColor(edges, edges, CV_BGR2GRAY);
+
+			//cv::morphologyEx(edges, edges, cv::MORPH_CLOSE, cv::getStructuringElement(cv::MORPH_RECT, cv::Size(5, 5)));
+	
+			
+			
+			
+			//cv::resize(soft_edges, soft_edges_resized, cv::Size(width_resize, height_resize));
+			//soft_edges_resized.convertTo(soft_edges_resized, CV_64FC1);
+
+			
+			//soft_edges = edges_full;
+			//soft_edges_resized = edges;
+
+			cv::GaussianBlur(edges_full, soft_edges, cv::Size(3, 3), 0);
+			cv::imwrite("output/adsasd.jpg", soft_edges);
+
+			//cv::medianBlur(edges_full, soft_edges, 3);
+
+			edges_full.convertTo(edges_full, CV_64F);
+			soft_edges.convertTo(soft_edges, CV_64F);
+			cv::imwrite("output/adsasd2.jpg", soft_edges);
+
+			cv::resize(edges_full, edges, cv::Size(width_resize, height_resize), 0, 0, CV_INTER_AREA);
+
+			cv::resize(soft_edges, soft_edges_resized, cv::Size(width_resize, height_resize), 0, 0, CV_INTER_AREA);
+		}
+		else {
+			std::vector<cv::Mat> flows;
+			for (const auto& ref : reference_frames) {
+				//cv::Mat ref_img = recon.GetImage(ref, resize);
+				cv::Mat ref_img = recon.GetImage(ref, false);
+				flows.emplace_back(GetFlow(base_img_full, ref_img));
+			}
+			std::cout << "Getting soft edges" << std::endl;
+			soft_edges = GetSoftEdges(base_img_full, flows);
+
+			cv::resize(soft_edges, soft_edges_resized, cv::Size(width_resize, height_resize));
+
+
+			std::cout << "Canny edges..." << std::endl;
+			edges = Canny(soft_edges_resized, base_img);
+
+			//cv::Mat edges;
+			//cv::Canny(base_img, edges, 40, 180);
+
+			//cv::morphologyEx(edges, edges, cv::MORPH_CLOSE, cv::getStructuringElement(cv::MORPH_RECT, cv::Size(5, 5)));
+			edges.convertTo(edges, CV_64FC1);
+
+
+			//edges = edges.mul(soft_edges_resized);
+		}
+		
 
 
         int last_keyframe = frame;

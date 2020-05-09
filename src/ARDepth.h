@@ -17,13 +17,15 @@
 
 class ARDepth{
 public:
-    ARDepth(const std::string& input_frames, const std::string& input_colmap, const std::string& input_scenes, const bool& resize, const bool& visualize, const bool& edgesOnly)
+    ARDepth(const std::string& input_frames, const std::string& input_colmap, const std::string& input_scenes, const std::string& input_edges, const bool& resize, const bool& visualize, const bool& edgesOnly, const bool& precompEdges)
             :input_frames(input_frames),
              input_colmap(input_colmap),
 			 input_scenes(input_scenes),
+			 input_edges(input_edges),
              resize(resize),
              visualize(visualize), 
-			 edgesOnly(edgesOnly) {};
+			 edgesOnly(edgesOnly),
+			 precompEdges(precompEdges) {};
 
     ~ARDepth() = default;
 
@@ -33,18 +35,21 @@ public:
     const std::string input_frames;
 	const std::string input_scenes;
     const std::string input_colmap;
+	const std::string input_edges;
 	const bool edgesOnly;
+	const bool precompEdges;
+
     const bool resize;
     const bool visualize;
-    const double tau_high = 0.80;
-    const double tau_low = 0.16;
-    const double tau_flow = 0.07;
+    const double tau_high = 0.1;
+    const double tau_low = 0.07;
+    const double tau_flow = 0.1;
     const int k_I = 5;
     const int k_T = 7;
     /*const int k_F = 31;*/
 	const int k_F = 31;
     const double lambda_d = 1.1;
-    const double lambda_t = 0.02;
+    const double lambda_t = 0.01;
     const double lambda_s = 1;
     const int num_solver_iterations = 500;
     const cv::Ptr<cv::DenseOpticalFlow> dis = cv::optflow::createOptFlow_DIS(2);

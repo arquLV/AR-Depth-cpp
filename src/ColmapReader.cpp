@@ -104,13 +104,15 @@ std::map<int, Point> ColmapReader::ReadColmapPoints(std::string filename) {
 
 };
 
-std::map<int, Point> ColmapReader::ReadObjectCoords(std::string filename) {
+std::pair<std::map<int, Point>, std::map<int, Point>> ColmapReader::ReadObjectData(std::string filename) {
 	std::map<int, Point> points;
+	std::map<int, Point> extents;
+
 	std::ifstream ifs(filename);
 	std::string str;
 	if (ifs.fail()) {
 		std::cerr << "Failed to read point file" << std::endl;
-		return points;
+		return std::make_pair(points, extents);
 	}
 
 	int id_value = 1;
@@ -123,20 +125,30 @@ std::map<int, Point> ColmapReader::ReadObjectCoords(std::string filename) {
 		points[id_value].position3d = Eigen::Vector3d(std::stod(tokens[0]), std::stod(tokens[1]),
 			std::stod(tokens[2]));
 
+		extents[id_value] = Point();
+		extents[id_value].id = id_value;
+		extents[id_value].position3d = Eigen::Vector3d(std::stod(tokens[3]), std::stod(tokens[4]),
+			std::stod(tokens[5]));
+
 		id_value += 1;
 	}
 
-	return points;
+	return std::make_pair(points, extents);
 }
 
-Reconstruction ColmapReader::ReadColmap(const std::string &poses_folder, const std::string &images_folder, const std::string& scenes_folder) {
+Reconstruction ColmapReader::ReadColmap(const std::string &poses_folder, const std::string &images_folder, const std::string& scenes_folder, const std::string& edges_folder) {
     Reconstruction recon;
     recon.image_folder = images_folder;
 	recon.scenes_folder = scenes_folder;
+	recon.edges_folder = edges_folder;
     recon.cameras = ReadColmapCamera(poses_folder + "/cameras.txt");
     recon.views = ReadColmapImages(poses_folder + "/images.txt");
     recon.points3d = ReadColmapPoints(poses_folder + "/points3D.txt");
-	recon.objectCoords = ReadObjectCoords(poses_folder + "/coords.txt");
+
+	auto const objectData = ReadObjectData(poses_folder + "/coords.txt");;
+	recon.objectCoords = objectData.first;
+	recon.objectSize = objectData.second;
+
     recon.min_view_id = (recon.views.begin()->first);
     recon.max_view_id = ((--recon.views.end())->first);
     std::cout << "Number of points: " << recon.points3d.size() << std::endl;

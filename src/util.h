@@ -57,10 +57,13 @@ public:
     std::map<int, View> views;
     std::map<int, Point> points3d;
 	std::map<int, Point> objectCoords;
+	std::map<int, Point> objectSize;
+
     int min_view_id=-1;
     int max_view_id=-1;
     std::string image_folder="";
 	std::string scenes_folder = "";
+	std::string edges_folder = "";
 
     std::vector<int> ViewIds();
 
@@ -69,6 +72,7 @@ public:
 
     cv::Mat GetImage(int view_id, bool resize);
 	cv::Mat GetSceneImage(int view_id, bool resize);
+	cv::Mat GetEdgesImage(int view_id, bool resize);
 
     Eigen::Matrix3d GetQuat(int view_id);
 
